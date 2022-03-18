@@ -1,9 +1,13 @@
 package util;
 
 import com.sun.deploy.util.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Duration;
-import java.util.List;
+import java.util.*;
 
 /**
  * @author zhul
@@ -11,6 +15,19 @@ import java.util.List;
  * @description
  */
 public class SqlUtils {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SqlUtils.class);
+
+    private static final int SQL_REDO = 2;
+    private static final int CSF = 6;
+
+    public static final List<String> EXCLUDED_SCHEMAS = Collections.unmodifiableList(Arrays.asList("appqossys", "audsys",
+            "ctxsys", "dvsys", "dbsfwuser", "dbsnmp", "gsmadmin_internal", "lbacsys", "mdsys", "ojvmsys", "olapsys",
+            "orddata", "ordsys", "outln", "sys", "system", "wmsys", "xdb"));
+
+    private static final String LOGMNR_CONTENTS_VIEW = "V$LOGMNR_CONTENTS";
+
+    private static final String LOGMNR_FLUSH_TABLE = "LOG_MINING_FLUSH";
 
     private static final String DATABASE_VIEW = "V$DATABASE";
     private static final String LOG_VIEW = "V$LOG";
@@ -95,5 +112,136 @@ public class SqlUtils {
         return "SELECT SUM(blocks*block_size) FROM " + ARCHIVED_LOG_VIEW + " WHERE NAME IN ('" +
                 StringUtils.join(logFileNames, "','") +
                 "')";
+    }
+
+    public static String queryLogMinerContents() {
+        final StringBuilder query = new StringBuilder(1024);
+        query.append("SELECT SCN, SQL_REDO, OPERATION_CODE, TIMESTAMP, XID, CSF, TABLE_NAME, SEG_OWNER, OPERATION, ");
+        query.append("USERNAME, ROW_ID, ROLLBACK, RS_ID ");
+        query.append("FROM ").append(LOGMNR_CONTENTS_VIEW).append(" ");
+
+        // These bind parameters will be bound when the query is executed by the caller.
+        query.append("WHERE SCN > ? AND SCN <= ? ");
+
+        // Restrict to configured PDB if one is supplied
+        final String pdbName = "";
+        if (!Strings.isNullOrEmpty(pdbName)) {
+            query.append("AND ").append("SRC_CON_NAME = '").append(pdbName.toUpperCase()).append("' ");
+        }
+
+        query.append("AND (");
+
+        // Always include START, COMMIT, MISSING_SCN, and ROLLBACK operations
+        query.append("(OPERATION_CODE IN (6,7,34,36)");
+
+        if (true) {
+            // In this mode, the connector will always be fed DDL operations for all tables even if they
+            // are not part of the inclusion/exclusion lists.
+            query.append(" OR ").append(buildDdlPredicate()).append(" ");
+            // Insert, Update, Delete, SelectLob, LobWrite, LobTrim, and LobErase
+            if (false) {
+                query.append(") OR (OPERATION_CODE IN (1,2,3,9,10,11,29) ");
+            }
+            else {
+                query.append(") OR (OPERATION_CODE IN (1,2,3) ");
+            }
+        }
+        else {
+            // Insert, Update, Delete, SelectLob, LobWrite, LobTrim, and LobErase
+            if (false) {
+                query.append(") OR ((OPERATION_CODE IN (1,2,3,9,10,11,29) ");
+            }
+            else {
+                query.append(") OR ((OPERATION_CODE IN (1,2,3) ");
+            }
+            // In this mode, the connector will filter DDL operations based on the table inclusion/exclusion lists
+            query.append("OR ").append(buildDdlPredicate()).append(") ");
+        }
+
+        // Always ignore the flush table
+        query.append("AND TABLE_NAME != '").append(LOGMNR_FLUSH_TABLE).append("' ");
+
+        // There are some common schemas that we automatically ignore when building the runtime Filter
+        // predicates and we put that same list of schemas here and apply those in the generated SQL.
+        if (!EXCLUDED_SCHEMAS.isEmpty()) {
+            query.append("AND SEG_OWNER NOT IN (");
+            for (Iterator<String> i = EXCLUDED_SCHEMAS.iterator(); i.hasNext();) {
+                String excludedSchema = i.next();
+                query.append("'").append(excludedSchema.toUpperCase()).append("'");
+                if (i.hasNext()) {
+                    query.append(",");
+                }
+            }
+            query.append(") ");
+        }
+
+        String schemaPredicate = "SEG_OWNER = 'TY'";
+        if (!Strings.isNullOrEmpty(schemaPredicate)) {
+            query.append("AND ").append(schemaPredicate).append(" ");
+        }
+
+        String tablePredicate = "TABLE_NAME = 'ty_bigdata_4'";
+        if (!Strings.isNullOrEmpty(tablePredicate)) {
+            query.append("AND ").append(tablePredicate).append(" ");
+        }
+
+        query.append("))");
+
+        Set<String> excludedUsers = new HashSet<>();
+        if (!excludedUsers.isEmpty()) {
+            query.append(" AND USERNAME NOT IN (");
+            for (Iterator<String> i = excludedUsers.iterator(); i.hasNext();) {
+                String user = i.next();
+                query.append("'").append(user).append("'");
+                if (i.hasNext()) {
+                    query.append(",");
+                }
+            }
+            query.append(")");
+        }
+
+        return query.toString();
+    }
+
+    private static String buildDdlPredicate() {
+        final StringBuilder predicate = new StringBuilder(256);
+        predicate.append("(OPERATION_CODE = 5 ");
+        predicate.append("AND USERNAME NOT IN ('SYS','SYSTEM') ");
+        predicate.append("AND INFO NOT LIKE 'INTERNAL DDL%' ");
+        predicate.append("AND (TABLE_NAME IS NULL OR TABLE_NAME NOT LIKE 'ORA_TEMP_%'))");
+        return predicate.toString();
+    }
+
+    public static String getSqlRedo(ResultSet rs) throws SQLException {
+        int lobLimitCounter = 9; // todo : decide on approach (XStream chunk option) and Lob limit
+
+        String redoSql = rs.getString(SQL_REDO);
+        if (redoSql == null) {
+            return null;
+        }
+
+        StringBuilder result = new StringBuilder(redoSql);
+        int csf = rs.getInt(CSF);
+
+        // 0 - indicates SQL_REDO is contained within the same row
+        // 1 - indicates that either SQL_REDO is greater than 4000 bytes in size and is continued in
+        // the next row returned by the ResultSet
+        while (csf == 1) {
+            rs.next();
+            if (lobLimitCounter-- == 0) {
+                LOGGER.warn("LOB value was truncated due to the connector limitation of {} MB", 40);
+                break;
+            }
+
+            redoSql = rs.getString(SQL_REDO);
+            result.append(redoSql);
+            csf = rs.getInt(CSF);
+        }
+
+        return result.toString();
+    }
+
+    public static String showSGA() {
+        return "SELECT * FROM V$SGA";
     }
 }

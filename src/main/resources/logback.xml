@@ -6,10 +6,30 @@
             <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{50} - %msg%n</pattern>
         </encoder>
     </appender>
+
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>log_miner_metrics_test_tool.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>log_miner_metrics_test_tool-%d{yyyy-MM-dd}-%i.zip</fileNamePattern>
+            <fileNamePattern>log_miner_metrics_test_tool-%d{yyyy-MM}-%i.zip</fileNamePattern>
+            <maxHistory>15</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+            <maxFileSize>100MB</maxFileSize>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${log.pattern}</pattern>
+        </encoder>
+        <encoder charset="utf-8">
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} - %msg%n</pattern>
+        </encoder>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>INFO</level>
+        </filter>
+    </appender>
+
+    <appender name="REDO_SQL" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>log_miner_redo_sql_detail.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>log_miner_redo_sql_detail-%d{yyyy-MM}-%i.zip</fileNamePattern>
             <maxHistory>15</maxHistory>
             <totalSizeCap>1GB</totalSizeCap>
             <maxFileSize>100MB</maxFileSize>
@@ -28,5 +48,6 @@
     <root level="info">
         <appender-ref ref="STDOUT" />
         <appender-ref ref="FILE" />
+<!--        <appender-ref ref="REDO_SQL" />-->
     </root>
 </configuration>

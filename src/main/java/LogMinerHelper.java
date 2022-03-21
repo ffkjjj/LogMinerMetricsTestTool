@@ -156,4 +156,23 @@ public class LogMinerHelper {
 
         return logFiles;
     }
+
+    public static String[] getMinAndMaxScn(OracleConnection connection) {
+        String[] result = new String[3];
+        try {
+            connection.query(SqlUtils.getMinAndMaxScnQuery(), rs -> {
+                if (rs.next()) {
+                    // min scn
+                    result[0] = rs.getString(1);
+                    // min scn of last archived log file
+                    result[1] = rs.getString(2);
+                    // max scn
+                    result[2] = rs.getString(3);
+                }
+            });
+        } catch (SQLException e) {
+            LOGGER.error("Failed to get min and max scn", e);
+        }
+        return result;
+    }
 }

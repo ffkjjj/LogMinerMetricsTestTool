@@ -241,4 +241,30 @@ public class SqlUtils {
     public static String showSGA() {
         return "SELECT * FROM V$SGA";
     }
+
+    public static String getMinAndMaxScnQuery() {
+        return "select min(first_change), max(first_change), max(next_change)\n" +
+                "from (\n" +
+                "         SELECT L.FIRST_CHANGE# FIRST_CHANGE,\n" +
+                "                L.NEXT_CHANGE#  NEXT_CHANGE,\n" +
+                "                L.SEQUENCE#   AS SEQ\n" +
+                "         FROM V$LOGFILE F,\n" +
+                "              V$LOG L\n" +
+                "                  LEFT JOIN V$ARCHIVED_LOG A ON A.FIRST_CHANGE# = L.FIRST_CHANGE# AND A.NEXT_CHANGE# = L.NEXT_CHANGE#\n" +
+                "         WHERE A.FIRST_CHANGE# IS NULL\n" +
+                "           AND F.GROUP# = L.GROUP#\n" +
+                "         GROUP BY F.GROUP#, L.FIRST_CHANGE#, L.NEXT_CHANGE#, L.STATUS, L.ARCHIVED, L.SEQUENCE#\n" +
+                "         UNION\n" +
+                "         SELECT A.FIRST_CHANGE# FIRST_CHANGE,\n" +
+                "                A.NEXT_CHANGE#  NEXT_CHANGE,\n" +
+                "                A.SEQUENCE# AS  SEQ\n" +
+                "         FROM V$ARCHIVED_LOG A\n" +
+                "         WHERE A.NAME IS NOT NULL\n" +
+                "           AND A.ARCHIVED = 'YES'\n" +
+                "           AND A.STATUS = 'A'\n" +
+                "           AND A.NEXT_CHANGE# > 0\n" +
+                "           AND A.DEST_ID IN\n" +
+                "               (SELECT DEST_ID FROM V$ARCHIVE_DEST_STATUS WHERE STATUS = 'VALID' AND TYPE = 'LOCAL' AND ROWNUM = 1)\n" +
+                "         ORDER BY 3) a";
+    }
 }

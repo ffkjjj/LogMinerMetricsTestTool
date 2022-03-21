@@ -8,6 +8,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Scanner;
 
 /**
  * @author zhul
@@ -28,6 +29,7 @@ public class Main {
     private long startScn = 13196034L;
     private long endScn = 14777862L;
     private long scnBatch = 0;
+    private boolean scnSetManually = false;
 
     public static void main(String[] args) throws SQLException {
         LOGGER.info("========== Start mining ==========");
@@ -42,12 +44,26 @@ public class Main {
         if (args.length == 0) {
             return;
         }
-        this.url = args[0];
-        this.user = args[1];
-        this.password = args[2];
-        this.startScn = Long.parseLong(args[3]);
-        this.endScn = Long.parseLong(args[4]);
-        this.scnBatch = Long.parseLong(args[5]);
+        if (args.length <= 3) {
+            this.url = args[0];
+            this.user = args[1];
+            this.password = args[2];
+        }
+        if (args.length <= 6 && args.length > 3) {
+            this.startScn = Long.parseLong(args[3]);
+            this.endScn = Long.parseLong(args[4]);
+            this.scnBatch = Long.parseLong(args[5]);
+            LOGGER.info(
+                    "params: url={}, user={}, password={}, startScn={}, endScn={}, scnBatch={}",
+                    url, user, password, startScn, endScn, scnBatch
+            );
+        } else {
+            scnSetManually = true;
+            LOGGER.info(
+                    "params: url={}, user={}, password={}, scn not defined, it will be configured later",
+                    url, user, password
+            );
+        }
     }
 
     private void initializeRedoLogsForMining() throws SQLException {
@@ -55,8 +71,10 @@ public class Main {
         OracleConnection connection = new OracleConnection(url, user, password);
         LOGGER.info("Connecting to {} cost {}", url, Duration.between(now, Instant.now()));
 
+        configureScnIfNeeded(connection);
+
         LOGGER.info("Initializing redo logs for mining");
-        LOGGER.info("startScn={}, endScn={}, gap={}", startScn, endScn, endScn - scnBatch);
+        LOGGER.info("startScn={}, endScn={}, gap={}", startScn, endScn, endScn + scnBatch - startScn);
         buildDataDictionary(connection);
         setLogFilesForMining(connection, startScn);
         startMiningSession(connection, startScn, endScn);
@@ -66,6 +84,31 @@ public class Main {
         printOracleMetrics(connection);
         connection.close();
         LOGGER.info("Connection closed");
+    }
+
+    private void configureScnIfNeeded(OracleConnection connection) {
+        if (!scnSetManually) {
+            return;
+        }
+        LOGGER.info("Configuring scn");
+        final String[] minAndMaxScnArray = LogMinerHelper.getMinAndMaxScn(connection);
+        LOGGER.info("min scn: {}", minAndMaxScnArray[0]);
+        LOGGER.info("max scn: {}", minAndMaxScnArray[2]);
+        LOGGER.info("min scn of last archived log file: {}", minAndMaxScnArray[1]);
+
+        final Scanner scanner = new Scanner(System.in);
+        System.out.print("Please input start scn: ");
+        final String minScn = scanner.next();
+        System.out.print("Please input end scn: ");
+        final String maxScn = scanner.next();
+        System.out.print("Please input scn batch: ");
+        final String scnBatch = scanner.next();
+
+        this.startScn = Long.parseLong(minScn);
+        this.endScn = Long.parseLong(maxScn);
+        this.scnBatch = Long.parseLong(scnBatch);
+
+        LOGGER.info("startScn={}, endScn={}, scnBatch={}", startScn, endScn, scnBatch);
     }
 
     private void printOracleMetrics(OracleConnection connection) throws SQLException {
@@ -82,8 +125,7 @@ public class Main {
         try {
             LOGGER.info("Ending mining session");
             connection.executeWithoutCommitting("BEGIN SYS.DBMS_LOGMNR.END_LOGMNR(); END;");
-        }
-        catch (SQLException e) {
+        } catch (SQLException e) {
             if (e.getMessage().toUpperCase().contains("ORA-01307")) {
                 LOGGER.info("LogMiner mining session is already closed.");
                 return;

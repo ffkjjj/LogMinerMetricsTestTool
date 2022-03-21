@@ -5,8 +5,6 @@ import java.sql.*;
 
 /**
  * @author zhul
- * @date 2022/3/16 11:05
- * @description
  */
 public class OracleConnection {
 

@@ -1,6 +1,5 @@
 package util;
 
-import com.sun.tools.javac.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,8 +10,6 @@ import java.util.*;
 
 /**
  * @author zhul
- * @date 2022/3/16 11:53
- * @description
  */
 public class SqlUtils {
 

@@ -1,6 +1,6 @@
 package util;
 
-import com.sun.deploy.util.StringUtils;
+import com.sun.tools.javac.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -110,7 +110,7 @@ public class SqlUtils {
 
     public static String archiveLogBytesSizeQuery(List<String> logFileNames) {
         return "SELECT SUM(blocks*block_size) FROM " + ARCHIVED_LOG_VIEW + " WHERE NAME IN ('" +
-                StringUtils.join(logFileNames, "','") +
+                String.join("','", logFileNames) +
                 "')";
     }
 

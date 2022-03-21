@@ -25,6 +25,7 @@
             <level>INFO</level>
         </filter>
     </appender>
+<!--
 
     <appender name="REDO_SQL" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>log_miner_redo_sql_detail.log</file>
@@ -44,6 +45,7 @@
             <level>INFO</level>
         </filter>
     </appender>
+-->
 
     <root level="info">
         <appender-ref ref="STDOUT" />

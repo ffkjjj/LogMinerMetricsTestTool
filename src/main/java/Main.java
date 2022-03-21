@@ -24,32 +24,32 @@ public class Main {
 
     private static final boolean IS_CONTINUOUS_MINING = false;
 
-    private static String url = "jdbc:oracle:thin:@//172.16.18.16:1521/oracle";
-    private static String user = "zl";
-    private static String password = "zl123";
-    private static long startScn = 13196034L;
-    private static long endScn = 14777862L;
-    private static long scnBatch = 0;
+    private String url = "jdbc:oracle:thin:@//192.168.62.31:1521/LHR11G";
+    private String user = "zl";
+    private String password = "zl123";
+    private long startScn = 13196034L;
+    private long endScn = 14777862L;
+    private long scnBatch = 0;
 
     public static void main(String[] args) throws SQLException {
         LOGGER.info("========== Start mining ==========");
-        initParams(args);
         LOGGER.info("Starting redo log mining");
         Main main = new Main();
+        main.initParams(args);
         main.initializeRedoLogsForMining();
         LOGGER.info("========== End mining ==========\n");
     }
 
-    private static void initParams(String[] args) {
+    private void initParams(String[] args) {
         if (args.length == 0) {
             return;
         }
-        url = args[0];
-        user = args[1];
-        password = args[2];
-        startScn = Long.parseLong(args[3]);
-        endScn = Long.parseLong(args[4]);
-        scnBatch = Long.parseLong(args[5]);
+        this.url = args[0];
+        this.user = args[1];
+        this.password = args[2];
+        this.startScn = Long.parseLong(args[3]);
+        this.endScn = Long.parseLong(args[4]);
+        this.scnBatch = Long.parseLong(args[5]);
     }
 
     private void initializeRedoLogsForMining() throws SQLException {

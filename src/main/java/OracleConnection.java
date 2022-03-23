@@ -51,7 +51,7 @@ public class OracleConnection {
 
     public OracleConnection query(String query, StatementFactory statementFactory, ResultSetConsumer resultConsumer) throws SQLException {
         Connection conn = connection();
-        try (Statement statement = statementFactory.createStatement(conn);) {
+        try (Statement statement = statementFactory.createStatement(conn)) {
             if (LOGGER.isTraceEnabled()) {
                 LOGGER.debug("running '{}'", query);
             }

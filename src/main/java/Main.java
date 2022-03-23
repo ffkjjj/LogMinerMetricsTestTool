@@ -23,9 +23,9 @@ public class Main {
 
     private static final boolean IS_CONTINUOUS_MINING = false;
 
-    private String url = "jdbc:oracle:thin:@//192.168.62.31:1521/LHR11G";
-    private String user = "zl";
-    private String password = "zl123";
+    private String url = "jdbc:oracle:thin:@//192.168.62.37:1521/ORCLPDB1";
+    private String user = "c##xiaolei_read";
+    private String password = "123";
     private long startScn = 13196034L;
     private long endScn = 14777862L;
     private long scnBatch = 0;
@@ -50,6 +50,9 @@ public class Main {
             this.password = args[2];
         }
         if (args.length <= 6 && args.length > 3) {
+            this.url = args[0];
+            this.user = args[1];
+            this.password = args[2];
             this.startScn = Long.parseLong(args[3]);
             this.endScn = Long.parseLong(args[4]);
             this.scnBatch = Long.parseLong(args[5]);

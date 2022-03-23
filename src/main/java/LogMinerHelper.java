@@ -113,7 +113,7 @@ public class LogMinerHelper {
                 count.getAndIncrement();
                 String fileName = rs.getString(1);
                 long firstScn = Long.parseLong(rs.getString(2));
-                long nextScn = Long.parseLong(rs.getString(3));
+                long nextScn = getNextScn(rs.getString(3));
                 String status = rs.getString(5);
                 String type = rs.getString(6);
                 Long sequence = rs.getLong(7);
@@ -155,6 +155,14 @@ public class LogMinerHelper {
         logFiles.addAll(onlineLogFiles);
 
         return logFiles;
+    }
+
+    private static long getNextScn(String longs) {
+        try {
+            return Long.parseLong(longs);
+        } catch (NumberFormatException e) {
+            return Long.MAX_VALUE;
+        }
     }
 
     public static String[] getMinAndMaxScn(OracleConnection connection) {

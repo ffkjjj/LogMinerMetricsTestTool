@@ -11,6 +11,24 @@ import java.time.Instant;
 import java.util.Scanner;
 
 /**
+ * 用来测试 Oracle LogMiner 的性能的小工具
+ *
+ * <p>
+ * 可以在启动参数中指定相关配置，如：<br>
+ * oracle-connection-info user password [start-scn end-scn end-scn-increase] <br>
+ * jdbc:oracle:thin:@//127.0.0.1:1521/ORCLCDB c##xiaolei_read 123 <br>
+ * jdbc:oracle:thin:@//127.0.0.1:1521/ORCLCDB c##xiaolei_read 123 2149911 2159911 0 <br>
+ * <p>
+ * [start-scn end-scn end-scn-increase] 可以省略, 当这三个值省略时, 程序会以交互方式来让用户输入, 并在输入时提供
+ * 相关的 scn 号信息, 如最新/最旧归档日志文件的起始 scn 号, current scn...
+ * <p>
+ * log miner 整体流程:
+ * 1. build data dictionary
+ * 2. add log file
+ * 3. start log miner // 启动慢
+ * ~~4. query redo sql~~ // 由于现场环境性能问题不是出现在这里, 因此这一步被省略掉了
+ * 5. end log miner
+ *
  * @author zhul
  */
 public class Main {
@@ -79,7 +97,7 @@ public class Main {
         LOGGER.info("Initializing redo logs for mining");
         LOGGER.info("startScn={}, endScn={}, gap={}", startScn, endScn, endScn + scnBatch - startScn);
         buildDataDictionary(connection);
-        setLogFilesForMining(connection, startScn);
+        setLogFilesForMining(connection, startScn, endScn + scnBatch);
         startMiningSession(connection, startScn, endScn);
         // queryLogMinerContents(connection, startScn, endScn);
         endMiningSession(connection);
@@ -89,7 +107,7 @@ public class Main {
         LOGGER.info("Connection closed");
     }
 
-    private void configureScnIfNeeded(OracleConnection connection) {
+    private void configureScnIfNeeded(OracleConnection connection) throws SQLException {
         if (!scnSetManually) {
             return;
         }
@@ -97,6 +115,7 @@ public class Main {
         final String[] minAndMaxScnArray = LogMinerHelper.getMinAndMaxScn(connection);
         LOGGER.info("min scn: {}", minAndMaxScnArray[0]);
         LOGGER.info("max scn: {}", minAndMaxScnArray[2]);
+        LOGGER.info("current scn: {}", minAndMaxScnArray[3]);
         LOGGER.info("min scn of last archived log file: {}", minAndMaxScnArray[1]);
 
         final Scanner scanner = new Scanner(System.in);
@@ -182,9 +201,9 @@ public class Main {
         return endScn;
     }
 
-    private void setLogFilesForMining(OracleConnection connection, long startScn) throws SQLException {
+    private void setLogFilesForMining(OracleConnection connection, long startScn, long endScn) throws SQLException {
         Instant start = Instant.now();
-        LogMinerHelper.setLogFilesForMining(connection, startScn, Duration.ZERO, false, null);
+        LogMinerHelper.setLogFilesForMining(connection, startScn, endScn, Duration.ZERO, false, null);
         LOGGER.info("Set log files for mining cost {}", Duration.between(start, Instant.now()));
     }
 
@@ -203,7 +222,10 @@ public class Main {
     private void buildDataDictionary(OracleConnection connection) throws SQLException {
         LOGGER.info("Building data dictionary");
         Instant start = Instant.now();
-        connection.executeWithoutCommitting("BEGIN DBMS_LOGMNR_D.BUILD (options => DBMS_LOGMNR_D.STORE_IN_REDO_LOGS); END;");
+        // connection.executeWithoutCommitting("create directory my_dictionary_dir_2 as ''");
+        final String buildInRedoLogSql = "BEGIN DBMS_LOGMNR_D.BUILD (options => DBMS_LOGMNR_D.STORE_IN_REDO_LOGS); END;";
+        final String buildInFlatFileSql = "BEGIN DBMS_LOGMNR_D.BUILD (dictionary_filename => 'dictionary.ora', dictionary_location => '/opt/oracle/database', options => DBMS_LOGMNR_D.STORE_IN_FLAT_FILE); END;";
+        connection.executeWithoutCommitting(SqlUtils.MINE_LOG_WITH_END_SCN ? buildInFlatFileSql : buildInRedoLogSql);
         LOGGER.info("Build data dictionary cost {}", Duration.between(start, Instant.now()));
     }
 }

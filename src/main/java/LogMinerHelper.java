@@ -10,6 +10,7 @@ import java.text.DecimalFormat;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /**
@@ -45,13 +46,14 @@ public class LogMinerHelper {
     public static void setLogFilesForMining(
             OracleConnection connection,
             long lastProcessedScn,
+            long endScn,
             Duration archiveLogRetention,
             boolean archiveLogOnlyMode,
             String archiveDestinationName
     ) throws SQLException {
         removeLogFilesFromMining(connection);
 
-        List<LogFile> logFilesForMining = getLogFilesForOffsetScn(connection, lastProcessedScn, archiveLogRetention, archiveLogOnlyMode, archiveDestinationName);
+        List<LogFile> logFilesForMining = getLogFilesForOffsetScn(connection, lastProcessedScn, endScn, archiveLogRetention, archiveLogOnlyMode, archiveDestinationName);
         if (logFilesForMining.stream().noneMatch(l -> l.getFirstScn() <= lastProcessedScn)) {
             Long minScn = logFilesForMining.stream()
                     .map(LogFile::getFirstScn)
@@ -67,6 +69,13 @@ public class LogMinerHelper {
         }
 
         List<String> logFilesNames = logFilesForMining.stream().map(LogFile::getFileName).collect(Collectors.toList());
+        /*
+        int j = logFilesNames.size();
+        int i = Math.min(j - 155, j);
+        while (i-- > 0) {
+            logFilesNames.remove(logFilesNames.size() - i - 1);
+        }
+        */
         printToMinedLogFilesSizes(connection, logFilesNames);
         for (String file : logFilesNames) {
             LOGGER.trace("Adding log file {} to mining session", file);
@@ -79,13 +88,14 @@ public class LogMinerHelper {
 
     private static void printToMinedLogFilesSizes(OracleConnection connection, List<String> logFilesForMining) {
         try {
+            LOGGER.info("Log files count: {}", logFilesForMining.size());
             connection.query(SqlUtils.archiveLogBytesSizeQuery(logFilesForMining), rs -> {
                 if (rs.next()) {
                     double mb = rs.getLong(1) / (double) (1024 * 1024);
                     DecimalFormat df = new DecimalFormat("#.##");
                     LOGGER.info(
                             "Total size of log files to mine: {} GB({} MB)",
-                            df.format(mb/1024),
+                            df.format(mb / 1024),
                             df.format(mb)
                     );
                 } else {
@@ -97,7 +107,7 @@ public class LogMinerHelper {
         }
     }
 
-    public static List<LogFile> getLogFilesForOffsetScn(OracleConnection connection, long offsetScn, Duration archiveLogRetention, boolean archiveLogOnlyMode,
+    public static List<LogFile> getLogFilesForOffsetScn(OracleConnection connection, long offsetScn, long endScn, Duration archiveLogRetention, boolean archiveLogOnlyMode,
                                                         String archiveDestinationName)
             throws SQLException {
         LOGGER.info("Getting logs to be mined for offset scn {}", offsetScn);
@@ -107,7 +117,7 @@ public class LogMinerHelper {
         final List<LogFile> archivedLogFiles = new ArrayList<>();
 
         AtomicInteger count = new AtomicInteger();
-        connection.query(SqlUtils.allMinableLogsQuery(offsetScn, archiveLogRetention, archiveLogOnlyMode, archiveDestinationName), rs -> {
+        connection.query(SqlUtils.allMinableLogsQuery(offsetScn, endScn, archiveLogRetention, archiveLogOnlyMode, archiveDestinationName), rs -> {
             LOGGER.info("Processing log files");
             while (rs.next()) {
                 count.getAndIncrement();
@@ -165,8 +175,8 @@ public class LogMinerHelper {
         }
     }
 
-    public static String[] getMinAndMaxScn(OracleConnection connection) {
-        String[] result = new String[3];
+    public static String[] getMinAndMaxScn(OracleConnection connection) throws SQLException {
+        String[] result = new String[4];
         try {
             connection.query(SqlUtils.getMinAndMaxScnQuery(), rs -> {
                 if (rs.next()) {
@@ -179,8 +189,26 @@ public class LogMinerHelper {
                 }
             });
         } catch (SQLException e) {
-            LOGGER.error("Failed to get min and max scn", e);
+            throw new SQLException("Failed to get min and max scn", e);
+        }
+        try {
+            result[3] = String.valueOf(getCurrentScn(connection));
+        } catch (SQLException e) {
+            throw new SQLException("Failed to get current scn", e);
         }
         return result;
+    }
+
+    private static long getCurrentScn(OracleConnection connection) throws SQLException {
+        String sql = "SELECT CURRENT_SCN FROM V$DATABASE";
+        AtomicLong currentScn = new AtomicLong();
+        connection.query(sql, rs -> {
+            if (rs.next()) {
+                currentScn.set(rs.getLong(1));
+                return;
+            }
+            throw new SQLException("Could not get SCN");
+        });
+        return currentScn.get();
     }
 }

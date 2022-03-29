@@ -16,9 +16,10 @@ public class SqlUtils {
     private static final Logger LOGGER = LoggerFactory.getLogger(SqlUtils.class);
 
     private static final int SQL_REDO = 2;
+
     private static final int CSF = 6;
 
-    public static final List<String> EXCLUDED_SCHEMAS = Collections.unmodifiableList(Arrays.asList("appqossys", "audsys",
+    private static final List<String> EXCLUDED_SCHEMAS = Collections.unmodifiableList(Arrays.asList("appqossys", "audsys",
             "ctxsys", "dvsys", "dbsfwuser", "dbsnmp", "gsmadmin_internal", "lbacsys", "mdsys", "ojvmsys", "olapsys",
             "orddata", "ordsys", "outln", "sys", "system", "wmsys", "xdb"));
 
@@ -26,16 +27,24 @@ public class SqlUtils {
 
     private static final String LOGMNR_FLUSH_TABLE = "LOG_MINING_FLUSH";
 
-    private static final String DATABASE_VIEW = "V$DATABASE";
     private static final String LOG_VIEW = "V$LOG";
+
     private static final String LOGFILE_VIEW = "V$LOGFILE";
+
     private static final String ARCHIVED_LOG_VIEW = "V$ARCHIVED_LOG";
+
     private static final String ARCHIVE_DEST_STATUS_VIEW = "V$ARCHIVE_DEST_STATUS";
-    private static final String ALL_LOG_GROUPS = "ALL_LOG_GROUPS";
+
+    /**
+     * 这个值用来控制 log miner add file 的时候,是添加从 start scn 之后的所有归档文件, 还是添加从 start scn 到 end scn 之间的文件
+     *
+     * fixme: 只添加 <start scn - end scn> 之间的文件时, log miner 无法启动, 因为 data dictionary 不完整
+     */
+    public static final boolean MINE_LOG_WITH_END_SCN = false;
 
     public static String allMinableLogsQuery(
             long scn,
-            Duration archiveLogRetention,
+            long endScn, Duration archiveLogRetention,
             boolean archiveLogOnlyMode,
             String archiveDestinationName
     ) {
@@ -58,8 +67,10 @@ public class SqlUtils {
         sb.append("AND A.ARCHIVED = 'YES' ");
         sb.append("AND A.STATUS = 'A' ");
         sb.append("AND A.NEXT_CHANGE# > ").append(scn).append(" ");
+        if (MINE_LOG_WITH_END_SCN) {
+            sb.append("AND A.FIRST_CHANGE# <= ").append(endScn).append(" ");
+        }
         sb.append("AND A.DEST_ID IN (").append(localArchiveLogDestinationsOnlyQuery(archiveDestinationName)).append(") ");
-
         if (!archiveLogRetention.isNegative() && !archiveLogRetention.isZero()) {
             sb.append("AND A.FIRST_TIME >= SYSDATE - (").append(archiveLogRetention.toHours()).append("/24) ");
         }
@@ -85,9 +96,14 @@ public class SqlUtils {
         if (isContinuousMining) {
             miningStrategy += " + DBMS_LOGMNR.CONTINUOUS_MINE ";
         }
+        String dataDictionaryDestination = "";
+        if (MINE_LOG_WITH_END_SCN) {
+            dataDictionaryDestination = " DICTFILENAME => '/opt/oracle/database/dictionary.ora', ";
+        }
         return "BEGIN sys.dbms_logmnr.start_logmnr(" +
                 "startScn => '" + startScn + "', " +
                 "endScn => '" + endScn + "', " +
+                dataDictionaryDestination +
                 "OPTIONS => " + miningStrategy +
                 " + DBMS_LOGMNR.NO_ROWID_IN_STMT);" +
                 "END;";
